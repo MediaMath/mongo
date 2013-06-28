@@ -1266,6 +1266,7 @@ namespace mongo {
             result.append( "nindexes" , nsd->nIndexes );
             result.append( "lastExtentSize" , nsd->lastExtentSize / scale );
             result.append( "paddingFactor" , nsd->paddingFactor() );
+            result.append( "docInitialSize" , nsd->docInitialSize() );
             result.append( "systemFlags" , nsd->systemFlags() );
             result.append( "userFlags" , nsd->userFlags() );
 
@@ -1332,6 +1333,14 @@ namespace mongo {
                         nsd->syncUserFlags( ns ); // must keep system.namespaces up-to-date
 
                         result.appendBool( "usePowerOf2Sizes_new", newPowerOf2 );
+                    }
+                }
+                else if ( str::equals( "docInitialSize", e.fieldName() ) ) {
+                    int oldSize = nsd->docInitialSize();
+                    result.append( "docInitialSize_old" , nsd->docInitialSize() );
+                    nsd->setDocInitialSize(e.numberInt());
+                    if (oldSize != nsd->docInitialSize()) {
+                        nsd->syncDocInitialSize( ns );
                     }
                 }
                 else if ( str::equals( "index", e.fieldName() ) ) {

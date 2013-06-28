@@ -101,7 +101,11 @@ namespace mongo {
         int indexBuildsInProgress;            // Number of indexes currently being built
     private:
         int _userFlags;
-        char reserved[72];
+        char reserved[68];
+        // [vince] we put this to the end of the namespace-spec so that new fields in future mongo release
+        // will not override our secret hack. :D
+        int _doc_initial_size;                // initial size for new document
+
         /*-------- end data 496 bytes */
     public:
         explicit NamespaceDetails( const DiskLoc &loc, bool _capped );
@@ -326,6 +330,11 @@ namespace mongo {
         const int userFlags() const { return _userFlags; }
         bool isUserFlagSet( int flag ) const { return _userFlags & flag; }
         
+        const int docInitialSize() const { return _doc_initial_size; }
+        void  setDocInitialSize(int sz) {
+            *getDur().writing(&_doc_initial_size) = sz;
+        }
+        void syncDocInitialSize( const string& ns );
         
         /**
          * these methods only modify NamespaceDetails and do not 

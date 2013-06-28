@@ -365,6 +365,10 @@ namespace mongo {
             d->replaceUserFlags( options["flags"].numberInt() );
         }
 
+        if ( options["docInitialSize"].numberInt() ) {
+            d->setDocInitialSize( options["docInitialSize"].numberInt() );
+        }
+
         return true;
     }
 

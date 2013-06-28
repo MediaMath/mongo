@@ -58,6 +58,7 @@ namespace mongo {
         _paddingFactor = 1.0;
         _systemFlags = 0;
         _userFlags = 0;
+        _doc_initial_size = 0;
         capFirstNewRecord = DiskLoc();
         // Signal that we are on first allocation iteration through extents.
         capFirstNewRecord.setInvalid();
@@ -793,6 +794,20 @@ namespace mongo {
         getDur().writingInt(_systemFlags) &= ~flag;
     }
     
+    void NamespaceDetails::syncDocInitialSize( const string& ns )
+    {
+        Lock::assertWriteLocked( ns );
+
+        string system_namespaces = NamespaceString( ns ).db + ".system.namespaces";
+
+        BSONObj oldEntry;
+        verify( Helpers::findOne( system_namespaces , BSON( "name" << ns ) , oldEntry ) );
+        BSONObj newEntry = applyUpdateOperators( oldEntry , BSON( "$set" << BSON( "options.docInitialSize" << docInitialSize() ) ) );
+
+        verify( 1 == deleteObjects( system_namespaces.c_str() , oldEntry , true , false , true ) );
+        theDataFileMgr.insert( system_namespaces.c_str() , newEntry.objdata() , newEntry.objsize() , true );
+    }
+
     /**
      * keeping things in sync this way is a bit of a hack
      * and the fact that we have to pass in ns again
@@ -852,7 +867,22 @@ namespace mongo {
         }
         verify( _paddingFactor >= 1 );
 
-        
+        if (minRecordSize < docInitialSize()) {
+            // check if initial size is already a power-of-2.
+            bool power2 = true;
+            int size = docInitialSize();
+            while (size > 1) {
+                if (size % 2 == 1) {
+                    power2 = false;
+                    break;
+                }
+                size /= 2;
+            }
+            // mongo has a bug that if min-size is already a power of two, it will raise
+            // the allocate size to the next level (like 256 -> 512)
+            minRecordSize = power2 ? docInitialSize() - 1 : docInitialSize();
+        }
+
         if ( isUserFlagSet( Flag_UsePowerOf2Sizes ) ) {
             int allocationSize = bucketSizes[ bucket( minRecordSize ) ];
             if ( allocationSize == bucketSizes[MaxBucket] ) {

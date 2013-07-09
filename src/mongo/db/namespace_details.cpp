@@ -805,7 +805,7 @@ namespace mongo {
         BSONObj newEntry = applyUpdateOperators( oldEntry , BSON( "$set" << BSON( "options.docInitialSize" << docInitialSize() ) ) );
 
         verify( 1 == deleteObjects( system_namespaces.c_str() , oldEntry , true , false , true ) );
-        theDataFileMgr.insert( system_namespaces.c_str() , newEntry.objdata() , newEntry.objsize() , true );
+        theDataFileMgr.insert( system_namespaces.c_str() , newEntry.objdata() , newEntry.objsize() , false, true );
     }
 
     /**

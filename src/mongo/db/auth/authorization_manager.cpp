@@ -394,9 +394,21 @@ namespace {
         _authenticatedPrincipals.add(principal);
         if (!principal->isImplicitPrivilegeAcquisitionEnabled())
             return;
+
+        const std::string dbname = principal->getName().getDB().toString();
+        if (dbname == StringData("local", StringData::LiteralTag()) &&
+            principal->getName().getUser() == internalSecurity.user) {
+
+            // Grant full access to internal user
+            ActionSet allActions;
+            allActions.addAllActions();
+            acquirePrivilege(Privilege(PrivilegeSet::WILDCARD_RESOURCE, allActions),
+                             principal->getName());
+            return;
+        }
+
         _acquirePrivilegesForPrincipalFromDatabase(ADMIN_DBNAME, principal->getName());
         principal->markDatabaseAsProbed(ADMIN_DBNAME);
-        const std::string dbname = principal->getName().getDB().toString();
         _acquirePrivilegesForPrincipalFromDatabase(dbname, principal->getName());
         principal->markDatabaseAsProbed(dbname);
     }
@@ -429,6 +441,18 @@ namespace {
 
     PrincipalSet::NameIterator AuthorizationManager::getAuthenticatedPrincipalNames() {
         return _authenticatedPrincipals.getNames();
+    }
+
+    std::string AuthorizationManager::getAuthenticatedPrincipalNamesToken() {
+        std::string ret;
+        for (PrincipalSet::NameIterator nameIter = getAuthenticatedPrincipalNames();
+                nameIter.more();
+                nameIter.next()) {
+            ret += '\0'; // Using a NUL byte which isn't valid in usernames to separate them.
+            ret += nameIter->getFullName();
+        }
+
+        return ret;
     }
 
     Status AuthorizationManager::acquirePrivilege(const Privilege& privilege,
@@ -490,13 +514,6 @@ namespace {
                                   << " from database "
                                   << principal.getDB(),
                           0);
-        }
-        if (principal.getUser() == internalSecurity.user) {
-            // Grant full access to internal user
-            ActionSet allActions;
-            allActions.addAllActions();
-            return acquirePrivilege(Privilege(PrivilegeSet::WILDCARD_RESOURCE, allActions),
-                                    principal);
         }
         return buildPrivilegeSet(dbname, principal, privilegeDocument, &_acquiredPrivileges);
     }

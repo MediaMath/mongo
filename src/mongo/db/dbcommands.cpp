@@ -236,6 +236,7 @@ namespace mongo {
                         // this should be in the while loop in case we step down
                         errmsg = "not master";
                         result.append( "wnote", "no longer primary" );
+                        result.append( "code" , 10990 );
                         return false;
                     }
 
@@ -1697,104 +1698,6 @@ namespace mongo {
         }
         return Status::OK();
     }
-    
-    class DBHashCmd : public Command {
-    public:
-        DBHashCmd() : Command( "dbHash", false, "dbhash" ) {}
-        virtual bool slaveOk() const { return true; }
-        virtual LockType locktype() const { return READ; }
-        virtual void addRequiredPrivileges(const std::string& dbname,
-                                           const BSONObj& cmdObj,
-                                           std::vector<Privilege>* out) {
-            ActionSet actions;
-            actions.addAction(ActionType::dbHash);
-            out->push_back(Privilege(dbname, actions));
-        }
-        virtual bool run(const string& dbname , BSONObj& cmdObj, int, string& errmsg, BSONObjBuilder& result, bool) {
-            list<string> colls;
-            Database* db = cc().database();
-            if ( db )
-                db->namespaceIndex.getNamespaces( colls );
-            colls.sort();
-
-            result.appendNumber( "numCollections" , (long long)colls.size() );
-            result.append( "host" , prettyHostName() );
-
-            md5_state_t globalState;
-            md5_init(&globalState);
-
-            BSONObjBuilder bb( result.subobjStart( "collections" ) );
-            for ( list<string>::iterator i=colls.begin(); i != colls.end(); i++ ) {
-                string c = *i;
-                if ( c.find( ".system.profile" ) != string::npos )
-                    continue;
-
-                shared_ptr<Cursor> cursor;
-
-                NamespaceDetails * nsd = nsdetails( c );
-
-                // debug SERVER-761
-                NamespaceDetails::IndexIterator ii = nsd->ii();
-                while( ii.more() ) {
-                    const IndexDetails &idx = ii.next();
-                    if ( !idx.head.isValid() || !idx.info.isValid() ) {
-                        log() << "invalid index for ns: " << c << " " << idx.head << " " << idx.info;
-                        if ( idx.info.isValid() )
-                            log() << " " << idx.info.obj();
-                        log() << endl;
-                    }
-                }
-
-                int idNum = nsd->findIdIndex();
-                if ( idNum >= 0 ) {
-                    cursor.reset( BtreeCursor::make( nsd,
-                                                     nsd->idx( idNum ),
-                                                     BSONObj(),
-                                                     BSONObj(),
-                                                     false,
-                                                     1 ) );
-                }
-                else if ( c.find( ".system." ) != string::npos ) {
-                    continue;
-                }
-                else if ( nsd->isCapped() ) {
-                    cursor = findTableScan( c.c_str() , BSONObj() );
-                }
-                else {
-                    log() << "can't find _id index for: " << c << endl;
-                    continue;
-                }
-
-                md5_state_t st;
-                md5_init(&st);
-
-                long long n = 0;
-                while ( cursor->ok() ) {
-                    BSONObj c = cursor->current();
-                    md5_append( &st , (const md5_byte_t*)c.objdata() , c.objsize() );
-                    n++;
-                    cursor->advance();
-                }
-                md5digest d;
-                md5_finish(&st, d);
-                string hash = digestToString( d );
-
-                bb.append( c.c_str() + ( dbname.size() + 1 ) , hash );
-
-                md5_append( &globalState , (const md5_byte_t*)hash.c_str() , hash.size() );
-            }
-            bb.done();
-
-            md5digest d;
-            md5_finish(&globalState, d);
-            string hash = digestToString( d );
-
-            result.append( "md5" , hash );
-
-            return 1;
-        }
-
-    } dbhashCmd;
 
     /* for diagnostic / testing purposes. Enabled via command line. */
     class CmdSleep : public Command {

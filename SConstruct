@@ -311,12 +311,30 @@ env = Environment( BUILD_DIR=variantDir,
                    CONFIGURELOG = '#' + scons_data_dir + '/config.log'
                    )
 
+# This could be 'if solaris', but unfortuantely that variable hasn't been set yet.
+if "sunos5" == os.sys.platform:
+    # SERVER-9890: On Solaris, SCons preferentially loads the sun linker tool 'sunlink' when
+    # using the 'default' tools as we do above. The sunlink tool sets -G as the flag for
+    # creating a shared library. But we don't want that, since we always drive our link step
+    # through CC or CXX. Instead, we want to let the compiler map GCC's '-shared' flag to the
+    # appropriate linker specs that it has compiled in. We could (and should in the future)
+    # select an empty set of tools above and then enable them as appropriate on a per platform
+    # basis. Until then the simplest solution, as discussed on the scons-users mailing list,
+    # appears to be to simply explicitly run the 'gnulink' tool to overwrite the Environment
+    # changes made by 'sunlink'. See the following thread for more detail:
+    #  http://four.pairlist.net/pipermail/scons-users/2013-June/001486.html
+    env.Tool('gnulink')
+
+
 env['_LIBDEPS'] = '$_LIBDEPS_OBJS'
 
 if has_option('mute'):
     env.Append( CCCOMSTR = "Compiling $TARGET" )
     env.Append( CXXCOMSTR = env["CCCOMSTR"] )
+    env.Append( SHCCCOMSTR = "Compiling $TARGET" )
+    env.Append( SHCXXCOMSTR = env["SHCCCOMSTR"] )
     env.Append( LINKCOMSTR = "Linking $TARGET" )
+    env.Append( SHLINKCOMSTR = env["LINKCOMSTR"] )
     env.Append( ARCOMSTR = "Generating library $TARGET" )
 
 if has_option('mongod-concurrency-level'):
@@ -708,9 +726,6 @@ if nix:
         except KeyError:
             pass
 
-    if linux and has_option( "sharedclient" ):
-        env.Append( LINKFLAGS=" -Wl,--as-needed -Wl,-zdefs " )
-
     if linux and has_option( "gcov" ):
         env.Append( CXXFLAGS=" -fprofile-arcs -ftest-coverage " )
         env.Append( LINKFLAGS=" -fprofile-arcs -ftest-coverage " )
@@ -824,7 +839,8 @@ def doConfigure(myenv):
 
     if (conf.CheckCXXHeader( "execinfo.h" ) and
         conf.CheckDeclaration('backtrace', includes='#include <execinfo.h>') and
-        conf.CheckDeclaration('backtrace_symbols', includes='#include <execinfo.h>')):
+        conf.CheckDeclaration('backtrace_symbols', includes='#include <execinfo.h>') and
+        conf.CheckDeclaration('backtrace_symbols_fd', includes='#include <execinfo.h>')):
 
         myenv.Append( CPPDEFINES=[ "MONGO_HAVE_EXECINFO_BACKTRACE" ] )
 
@@ -1104,13 +1120,6 @@ if len(COMMAND_LINE_TARGETS) > 0 and 'uninstall' in COMMAND_LINE_TARGETS:
     BUILD_TARGETS.remove("uninstall")
     BUILD_TARGETS.append("install")
 
-clientEnv = env.Clone()
-clientEnv['CPPDEFINES'].remove('MONGO_EXPOSE_MACROS')
-
-if not use_system_version_of_library("boost"):
-    clientEnv.Append(LIBS=['boost_thread', 'boost_filesystem', 'boost_system'])
-    clientEnv.Prepend(LIBPATH=['$BUILD_DIR/third_party/boost/'])
-
 module_sconscripts = moduleconfig.get_module_sconscripts(mongo_modules)
 
 # The following symbols are exported for use in subordinate SConscript files.
@@ -1122,7 +1131,6 @@ module_sconscripts = moduleconfig.get_module_sconscripts(mongo_modules)
 # conditional decision making that hasn't been moved up to this SConstruct file,
 # and they are exported here, as well.
 Export("env")
-Export("clientEnv")
 Export("shellEnv")
 Export("testEnv")
 Export("has_option use_system_version_of_library")
